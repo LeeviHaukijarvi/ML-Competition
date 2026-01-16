@@ -1,0 +1,15 @@
+{
+  "lr": 0.001,
+  "weight_decay": 5e-06,
+  "dropout_base": 0.45,
+  "label_smoothing": 0.1,
+  "mixup_alpha": 0.2,
+  "val_acc": 96.48397104446742,
+  "architecture": [
+    1024,
+    512,
+    256,
+    128,
+    64
+  ]
+}
