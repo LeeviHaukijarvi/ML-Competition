@@ -1,0 +1,291 @@
+================================================================================
+IEEE REPORT: Wi-Fi Device Localization Using Deep Neural Networks and CSI Feature Engineering
+================================================================================
+
+Authors: Author Name 1, Author Name 2
+Affiliation: Department, University
+
+================================================================================
+ABSTRACT
+================================================================================
+
+This paper presents a deep learning approach for Wi-Fi device localization using Channel State Information (CSI). The task is formulated as a 10-class classification problem where the goal is to predict the position of a Wi-Fi device based on 260-dimensional CSI measurements. We initially explored Random Forest classifiers but found that neural networks better capture the complex patterns in high-dimensional CSI data. Our approach combines domain-specific feature engineering with residual neural networks. The feature engineering pipeline transforms raw I/Q values into amplitude and phase representations, removes inactive guard band subcarriers, and extracts cross-antenna features that capture angle-of-arrival information. We conducted a hyperparameter search over 43 configurations and built a 12-model ensemble using diversity-based selection. The final ensemble achieves 96.59% validation accuracy, representing a 0.88% improvement over our baseline feedforward network.
+
+[Word count: 137]
+
+================================================================================
+I. INTRODUCTION
+================================================================================
+
+Channel State Information (CSI) describes how wireless signals are affected by the environment before reaching a receiver. Modern Wi-Fi systems use Orthogonal Frequency Division Multiplexing (OFDM), which splits transmissions across multiple closely spaced subcarriers. As signals travel through space, they experience reflections, scattering, and fading. CSI captures these effects by measuring amplitude and phase for each subcarrier.
+
+CSI-based sensing has become increasingly important in recent years. The high dimensionality of CSI data makes it well suited for machine learning approaches, which can learn complex patterns that traditional analytical models struggle to capture. Applications include motion detection, presence sensing, occupancy tracking, and device localization.
+
+This paper addresses the problem of Wi-Fi device localization. Given CSI measurements from a tracking unit, we aim to classify the position of a target Wi-Fi device into one of ten predefined classes. The dataset contains 12,888 training samples with 260 features each. The features consist of 5 metadata values (timestamp, sequence control, angle of arrival, and two RSSI measurements) plus 255 CSI values representing I/Q pairs for 64 subcarriers across 2 antennas.
+
+Our main contributions are:
+- A feature engineering pipeline that transforms raw CSI data into more informative representations
+- A residual neural network architecture designed for CSI classification
+- A diversity-optimized ensemble that combines multiple trained models
+- Comprehensive hyperparameter optimization across 43 configurations
+
+================================================================================
+II. FEATURE ANALYSIS
+================================================================================
+
+A. Raw CSI Structure
+
+The raw CSI data consists of 255 values representing measurements from 64 OFDM subcarriers across 2 receiver antennas. Each subcarrier measurement includes in-phase (I) and quadrature (Q) components. The 64 subcarriers correspond to a 20 MHz Wi-Fi channel.
+
+Not all subcarriers carry useful information. Wi-Fi channels include guard bands at the edges and null subcarriers to prevent interference between adjacent channels. In our dataset, 12 subcarriers are inactive: the DC subcarrier (index 0) and guard band subcarriers (indices 27-37).
+
+B. Feature Engineering Pipeline
+
+[INSERT FIG. 2: Feature Engineering Pipeline - showing the transformation from raw CSI to engineered features]
+
+Our feature engineering pipeline transforms 260 raw features into 335 engineered features through the following steps:
+
+1) Amplitude and Phase Extraction: Raw I/Q values are converted to polar representation. For each subcarrier, amplitude is computed as sqrt(I^2 + Q^2) and phase as arctan2(Q, I). This representation separates signal strength from timing information.
+
+2) Inactive Subcarrier Removal: We remove the 12 inactive subcarriers (indices 0, 27-37) to reduce noise from null and pilot carriers. This leaves 52 active subcarriers per antenna.
+
+3) Cross-Antenna Features: We compute amplitude difference and normalized phase difference between the two antennas for each active subcarrier. These features capture angle-of-arrival information that helps distinguish device positions.
+
+4) Band Statistics: We divide subcarriers into low, mid, and high frequency bands and compute aggregate statistics (mean, standard deviation, maximum) for each band and antenna. This captures frequency-dependent propagation characteristics.
+
+The final feature vector combines the original 5 metadata features with 330 engineered CSI features.
+
+================================================================================
+III. CLASSIFICATION METHODS
+================================================================================
+
+A. Initial Approach: Random Forest
+
+We initially experimented with Random Forest classifiers. Random Forests are a natural choice for tabular data and provide good baseline performance without extensive tuning. However, we found that Random Forests struggled to capture the complex spatial relationships in high-dimensional CSI data. The I/Q values from different subcarriers and antennas have intricate correlations that tree-based methods do not model effectively.
+
+B. Neural Network Approach
+
+We switched to neural networks, which can learn arbitrary nonlinear relationships between features. Neural networks are particularly well suited for CSI data because they can jointly process all subcarrier measurements and learn representations that capture spatial patterns.
+
+C. Baseline Architecture (v3)
+
+[INSERT FIG. 1: Neural Network Architecture - showing both v3 and v4 architectures side by side]
+
+Our baseline model is a 4-layer feedforward network:
+- Input: 260 features
+- Layer 1: Linear(260, 512), BatchNorm, ReLU, Dropout(0.3)
+- Layer 2: Linear(512, 256), BatchNorm, ReLU, Dropout(0.3)
+- Layer 3: Linear(256, 128), BatchNorm, ReLU, Dropout(0.2)
+- Layer 4: Linear(128, 64), BatchNorm, ReLU, Dropout(0.2)
+- Output: Linear(64, 10)
+
+Batch normalization stabilizes training and allows higher learning rates. Dropout provides regularization to prevent overfitting. The network outputs raw logits, and softmax is applied internally by the cross-entropy loss function.
+
+D. Improved Architecture (v4)
+
+The improved v4 model uses residual blocks with skip connections:
+- Input: 335 engineered features
+- Input projection: Linear(335, 1024), BatchNorm, ReLU, Dropout(0.45)
+- ResBlock 1: 1024 -> 512, Dropout(0.40)
+- ResBlock 2: 512 -> 256, Dropout(0.35)
+- ResBlock 3: 256 -> 128, Dropout(0.30)
+- ResBlock 4: 128 -> 64, Dropout(0.25)
+- Output: Linear(64, 64), BatchNorm, ReLU, Dropout(0.2), Linear(64, 10)
+
+Each residual block consists of two linear layers with batch normalization, and a skip connection that adds the input to the output. Skip connections help gradient flow during training and allow the network to learn residual mappings.
+
+E. Ensemble Strategy
+
+Our final model is an ensemble of 12 neural networks. Individual predictions are averaged (soft voting) to produce the final class probabilities. The ensemble members are selected using a diversity-based greedy algorithm:
+
+1) Train 43 models with different hyperparameter configurations
+2) Select the top 20 models by validation accuracy
+3) Start with the best model
+4) Iteratively add models that maximize: 0.7 * accuracy + 0.3 * diversity
+5) Diversity is measured by prediction disagreement rate between models
+
+This selection process ensures that ensemble members are both accurate and complementary.
+
+================================================================================
+IV. EVALUATION METRICS
+================================================================================
+
+The primary evaluation metric is classification accuracy, which is used for Kaggle competition ranking. Accuracy measures the fraction of correctly classified samples:
+
+Accuracy = (Number of Correct Predictions) / (Total Number of Predictions)
+
+We also report precision, recall, and F1-score to understand per-class performance. For multi-class classification:
+- Precision: Of all predictions for a class, how many are correct
+- Recall: Of all actual samples from a class, how many are correctly identified
+- F1-score: Harmonic mean of precision and recall
+
+Confusion matrix analysis reveals which position classes are commonly confused, providing insight into the spatial relationships between positions.
+
+================================================================================
+V. EXPERIMENTS
+================================================================================
+
+A. Data Split and Preprocessing
+
+We use an 85/15 stratified train/validation split. Stratification ensures each split has the same class distribution as the original dataset. All features are standardized (zero mean, unit variance) using statistics computed on the training set.
+
+B. Hyperparameter Search
+
+[INSERT TAB. I: Top 10 Hyperparameter Configurations]
+
+We searched 43 hyperparameter configurations, varying:
+- Learning rate: 0.0005, 0.0008, 0.001, 0.0012
+- Weight decay: 5e-6, 1e-5, 2e-5, 5e-5
+- Dropout base: 0.35, 0.4, 0.45
+- Label smoothing: 0.05, 0.1, 0.15
+- Mixup alpha: 0.15, 0.2, 0.25
+
+TABLE I: TOP 10 HYPERPARAMETER CONFIGURATIONS
++------+-------+-----------+--------+---------+-------+--------+
+| Rank | LR    | W. Decay  | Dropout| Label Sm| Mixup | Val Acc|
++------+-------+-----------+--------+---------+-------+--------+
+|  1   | 0.001 | 5e-6      | 0.45   | 0.1     | 0.20  | 96.48% |
+|  2   | 0.001 | 5e-6      | 0.45   | 0.1     | 0.25  | 96.38% |
+|  3   | 0.001 | 5e-6      | 0.35   | 0.05    | 0.20  | 96.28% |
+|  4   | 0.001 | 5e-6      | 0.45   | 0.05    | 0.20  | 96.23% |
+|  5   | 0.001 | 5e-6      | 0.35   | 0.15    | 0.20  | 96.23% |
+|  6   | 0.001 | 5e-6      | 0.40   | 0.1     | 0.20  | 96.23% |
+|  7   | 0.001 | 5e-6      | 0.45   | 0.05    | 0.15  | 96.23% |
+|  8   | 0.001 | 5e-6      | 0.40   | 0.05    | 0.15  | 96.23% |
+|  9   | 0.001 | 5e-6      | 0.40   | 0.1     | 0.20  | 96.23% |
+| 10   | 0.001 | 2e-5      | 0.40   | 0.1     | 0.20  | 96.23% |
++------+-------+-----------+--------+---------+-------+--------+
+
+C. Training Configuration
+
+All models are trained with:
+- Optimizer: AdamW
+- Batch size: 256
+- Maximum epochs: 1000
+- Early stopping patience: 30-40 epochs
+- Learning rate schedule: 10-epoch warmup followed by cosine annealing
+- Gradient clipping: max norm 1.0
+
+D. Training Enhancements
+
+Mixup Data Augmentation: During training, we linearly interpolate between random pairs of samples and their labels. Given samples (x_i, y_i) and (x_j, y_j), we create:
+x' = lambda * x_i + (1 - lambda) * x_j
+y' = lambda * y_i + (1 - lambda) * y_j
+
+where lambda is sampled from Beta(alpha, alpha). This smooths the decision boundary and improves generalization.
+
+Label Smoothing: Instead of hard targets (0 or 1), we use soft targets that distribute a small amount of probability mass to incorrect classes. This prevents overconfident predictions and improves calibration.
+
+================================================================================
+VI. RESULTS
+================================================================================
+
+[INSERT FIG. 3: Training/Validation Accuracy Curves]
+
+[INSERT TAB. II: Model Comparison Results]
+
+TABLE II: MODEL COMPARISON RESULTS
++----------------------+----------------+-------------+
+| Model                | Val. Accuracy  | Improvement |
++----------------------+----------------+-------------+
+| v3 Baseline          | 95.71%         | -           |
+| v4 Single (best)     | 96.48%         | +0.77%      |
+| v4 Ensemble (12)     | 96.59%         | +0.88%      |
++----------------------+----------------+-------------+
+
+A. Baseline Performance
+
+The v3 baseline model achieves 95.71% validation accuracy. This model uses raw features without engineering and a simple feedforward architecture. Training converges within approximately 200 epochs with early stopping.
+
+B. Feature Engineering Impact
+
+Adding feature engineering improves single-model accuracy from 95.71% to 96.48%. The amplitude/phase representation and cross-antenna features provide the most benefit, as they directly encode information relevant to device localization.
+
+C. Ensemble Performance
+
+The 12-model diversity-optimized ensemble achieves 96.59% validation accuracy. Compared to simple top-N averaging, diversity-based selection produces better results with fewer models. The ensemble corrects errors made by individual models while introducing few new errors.
+
+D. Best Hyperparameters
+
+The best single model uses:
+- Learning rate: 0.001
+- Weight decay: 5e-6
+- Dropout base: 0.45
+- Label smoothing: 0.1
+- Mixup alpha: 0.2
+
+Higher dropout (0.45) combined with label smoothing and mixup provides strong regularization without degrading training.
+
+================================================================================
+VII. CONCLUSIONS
+================================================================================
+
+We presented a deep learning system for Wi-Fi device localization using CSI data. Our main findings are:
+
+1) Feature engineering significantly improves performance. Converting I/Q values to amplitude and phase, removing inactive subcarriers, and extracting cross-antenna features transforms the raw data into a more learnable representation.
+
+2) Residual networks outperform feedforward networks. Skip connections improve gradient flow and allow deeper architectures without degradation.
+
+3) Ensemble diversity matters. Selecting models that make different errors produces better ensembles than simply averaging the top performers.
+
+4) Regularization is crucial. High dropout, label smoothing, and mixup work together to prevent overfitting on the relatively small training set.
+
+Our final ensemble achieves 96.59% validation accuracy on the 10-class localization task, demonstrating that deep learning is effective for CSI-based device localization.
+
+Future work could explore 1D convolutional networks that process subcarriers sequentially, attention mechanisms to weight important frequency bands, or data augmentation techniques specific to CSI data.
+
+================================================================================
+REFERENCES
+================================================================================
+
+[1] A. Paszke et al., "PyTorch: An Imperative Style, High-Performance Deep Learning Library," in Advances in Neural Information Processing Systems 32, 2019.
+
+[2] K. He, X. Zhang, S. Ren, and J. Sun, "Deep Residual Learning for Image Recognition," in Proc. IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2016.
+
+[3] H. Zhang, M. Cisse, Y. N. Dauphin, and D. Lopez-Paz, "mixup: Beyond Empirical Risk Minimization," in International Conference on Learning Representations, 2018.
+
+[4] C. Szegedy, V. Vanhoucke, S. Ioffe, J. Shlens, and Z. Wojna, "Rethinking the Inception Architecture for Computer Vision," in Proc. IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2016.
+
+[5] IEEE 802.11bf Task Group, "WLAN Sensing," IEEE Standards Association, 2024.
+
+================================================================================
+FIGURE AND TABLE PLACEHOLDERS
+================================================================================
+
+FIG. 1: Neural Network Architecture
+- Left side: v3 baseline (4-layer feedforward)
+  - Show: Input(260) -> 512 -> 256 -> 128 -> 64 -> Output(10)
+  - Include BatchNorm and Dropout annotations
+- Right side: v4 ResNet (5-layer with skip connections)
+  - Show: Input(335) -> 1024 -> 512 -> 256 -> 128 -> 64 -> Output(10)
+  - Draw skip connection arrows around each residual block
+
+FIG. 2: Feature Engineering Pipeline
+- Flowchart showing:
+  Raw CSI (255 I/Q values)
+  -> Split by antenna (2 x 64 subcarriers)
+  -> Convert to amplitude/phase
+  -> Remove inactive subcarriers (52 active)
+  -> Extract cross-antenna features
+  -> Compute band statistics
+  -> Concatenate with metadata (5 features)
+  -> Final: 335 features
+
+FIG. 3: Training/Validation Accuracy Curves
+- Use training_history.png or final_ensemble_analysis.png from the codebase
+- X-axis: Epoch
+- Y-axis: Accuracy (%)
+- Two lines: Training (blue), Validation (orange)
+- Show convergence around 95-96%
+
+TAB. I: Top 10 Hyperparameter Configurations
+- Columns: Rank, LR, Weight Decay, Dropout, Label Smoothing, Mixup, Val Acc
+- Data provided in Section V.B above
+
+TAB. II: Model Comparison Results
+- Columns: Model, Validation Accuracy, Improvement over Baseline
+- Data provided in Section VI above
+
+================================================================================
+END OF REPORT
+================================================================================
