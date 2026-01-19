@@ -547,7 +547,7 @@ submission = pd.DataFrame({
     'position': predictions
 })
 
-submission.to_csv('submission_v4_simple.csv', index=False)
+submission.to_csv('submission_v4.csv', index=False)
 print(f"Predictions saved to 'submission_v4.csv'")
 print(f"Total predictions: {len(predictions)}")
 print(f"Prediction distribution:\n{pd.Series(predictions).value_counts().sort_index()}")
